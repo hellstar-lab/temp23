@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: motoverse
+    runtime: static
+    staticPublishPath: .
+    headers:
+      - path: /frames/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=3600

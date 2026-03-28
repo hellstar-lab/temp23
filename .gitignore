@@ -1,0 +1,8 @@
+.DS_Store
+*.py
+test_puppeteer.js
+getFramePath.js
+generate_dummy_images.py
+.claude/
+node_modules/
+frames/**/ezgif-frame-*.jpg

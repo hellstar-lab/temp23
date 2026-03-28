@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MotoVerse — Premium Bikes for Sale</title>
+  <style>
+    /* ── Reset ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { background: #000; }
+
+    body { height: 600vh; } /* overridden by JS to max(600vh, 5000px) */
+
+    [hidden] { display: none !important; }
+
+    /* ── Canvas ─────────────────────────────────────────── */
+    #frame-canvas { z-index: 0; }
+
+
+    /* ── Custom cursor ──────────────────────────────────── */
+    #cursor-dot,
+    #cursor-ring {
+      position: fixed;
+      top: 0; left: 0;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0;
+      will-change: transform;
+      transition: opacity 0.3s ease;
+    }
+    #cursor-dot {
+      width: 6px; height: 6px;
+      background: #fff;
+      border-radius: 50%;
+    }
+    #cursor-ring {
+      width: 36px; height: 36px;
+      border: 1px solid rgba(255,255,255,0.55);
+      border-radius: 50%;
+      transition: opacity 0.3s ease, width 0.25s ease, height 0.25s ease,
+                  border-color 0.25s ease, background 0.25s ease;
+    }
+    #cursor-ring.cursor-hover {
+      width: 52px; height: 52px;
+      border-color: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.06);
+    }
+    #cursor-dot.cursor-hover { width: 4px; height: 4px; }
+
+    /* ── Loader ─────────────────────────────────────────── */
+    #loader {
+      position: fixed; inset: 0; z-index: 10;
+      background: #0a0a0a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 20px;
+      opacity: 1;
+      transition: opacity 0.6s ease;
+    }
+    #loader.done { opacity: 0; pointer-events: none; }
+    #loader-percent {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(2rem, 6vw, 4rem);
+      font-weight: 200; letter-spacing: 0.05em; color: #fff;
+    }
+    #loader-track {
+      width: min(320px, 60vw); height: 2px;
+      background: #222; border-radius: 2px; overflow: hidden;
+    }
+    #loader-bar {
+      height: 100%; width: 0%;
+      background: #fff; border-radius: 2px;
+      transition: width 0.1s linear;
+    }
+
+    /* ── Overlay base ───────────────────────────────────── */
+    .overlay {
+      position: fixed; z-index: 2;
+      pointer-events: none;
+      will-change: opacity, transform;
+    }
+
+    /* ── Hero ───────────────────────────────────────────── */
+    #hero {
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) translateZ(0);
+      text-align: center; opacity: 0;
+    }
+    #hero-eyebrow {
+      display: block;
+      font-family: system-ui, sans-serif;
+      font-size: clamp(0.6rem, 1.2vw, 0.75rem);
+      font-weight: 400; letter-spacing: 0.3em; text-transform: uppercase;
+      color: rgba(255,255,255,0.5); margin-bottom: 16px;
+    }
+    #hero-heading {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(2.8rem, 7vw, 6rem);
+      font-weight: 200; letter-spacing: -0.02em; line-height: 1;
+      color: #fff; white-space: nowrap;
+    }
+    #hero-heading em { font-style: normal; font-weight: 600; }
+    #hero-sub {
+      display: block; margin-top: 20px;
+      font-family: system-ui, sans-serif;
+      font-size: clamp(0.75rem, 1.5vw, 0.9rem);
+      font-weight: 300; letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.45);
+    }
+
+    /* ── Scroll hint ────────────────────────────────────── */
+    #scroll-hint {
+      position: fixed; bottom: 36px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 2; display: flex; flex-direction: column;
+      align-items: center; gap: 8px; pointer-events: none;
+      animation: hint-fade 2.4s ease-in-out infinite;
+    }
+    #scroll-hint span {
+      font-family: system-ui, sans-serif;
+      font-size: 0.6rem; letter-spacing: 0.25em;
+      text-transform: uppercase; color: rgba(255,255,255,0.35);
+    }
+    #scroll-hint svg { opacity: 0.35; }
+    @keyframes hint-fade {
+      0%, 100% { opacity: 0;   transform: translateX(-50%) translateY(0); }
+      40%       { opacity: 1;   transform: translateX(-50%) translateY(0); }
+      70%       { opacity: 0.8; transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ── Callouts ───────────────────────────────────────── */
+    .callout {
+      position: fixed; z-index: 2; pointer-events: none;
+      will-change: opacity, transform;
+      display: flex; align-items: flex-start; gap: 12px; opacity: 0;
+    }
+    .callout-line {
+      display: flex; flex-direction: column;
+      align-items: center; padding-top: 6px; flex-shrink: 0;
+    }
+    .callout-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%; background: #fff; flex-shrink: 0;
+    }
+    .callout-stem {
+      width: 1px; height: 36px;
+      background: linear-gradient(to bottom, rgba(255,255,255,0.6), transparent);
+      margin-top: 4px;
+    }
+    .callout-body { display: flex; flex-direction: column; gap: 4px; }
+    .callout-label {
+      font-family: system-ui, sans-serif;
+      font-size: 0.6rem; font-weight: 400; letter-spacing: 0.25em;
+      text-transform: uppercase; color: rgba(255,255,255,0.45);
+    }
+    .callout-title {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(0.85rem, 1.8vw, 1rem);
+      font-weight: 300; letter-spacing: 0.02em; color: #fff; line-height: 1.2;
+    }
+    .callout-value {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(0.65rem, 1.2vw, 0.75rem);
+      font-weight: 400; color: rgba(255,255,255,0.4); letter-spacing: 0.05em;
+    }
+    #callout-frame   { top: 22%;    left:  8%; }
+    #callout-motor   { bottom: 28%; left: 10%; }
+    #callout-battery { bottom: 20%; right: 10%; }
+    #callout-brakes  { top: 18%;   right:  8%; }
+    #callout-display { top: 12%;   left: 50%; transform: translateX(-50%) translateZ(0); }
+
+    /* ── Sliding panel ──────────────────────────────────── */
+    #bike-panel {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 3;
+      padding: 32px 48px 40px;
+      background: linear-gradient(to top, rgba(0,0,0,0.96) 60%, transparent);
+      will-change: opacity, transform; opacity: 0;
+      transform: translateY(100%) translateZ(0); pointer-events: none;
+    }
+    #panel-header {
+      display: flex; align-items: baseline; gap: 16px; margin-bottom: 24px;
+    }
+    #panel-eyebrow {
+      font-family: system-ui, sans-serif;
+      font-size: 0.6rem; font-weight: 400; letter-spacing: 0.3em;
+      text-transform: uppercase; color: rgba(255,255,255,0.4);
+    }
+    #panel-title {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(1.1rem, 2.4vw, 1.5rem);
+      font-weight: 200; letter-spacing: -0.01em; color: #fff;
+    }
+    #panel-grid {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px;
+    }
+    .bike-card {
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 16px 14px;
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+      background: rgba(255,255,255,0.03); opacity: 0;
+      will-change: opacity; cursor: default;
+    }
+    .bike-card-category {
+      font-family: system-ui, sans-serif;
+      font-size: 0.55rem; font-weight: 400; letter-spacing: 0.22em;
+      text-transform: uppercase; color: rgba(255,255,255,0.35);
+    }
+    .bike-card-name {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(0.8rem, 1.4vw, 0.95rem);
+      font-weight: 300; color: #fff; line-height: 1.25;
+    }
+    .bike-card-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 4px 0; }
+    .bike-card-spec { display: flex; justify-content: space-between; align-items: baseline; }
+    .bike-card-spec-label {
+      font-family: system-ui, sans-serif;
+      font-size: 0.6rem; color: rgba(255,255,255,0.3); letter-spacing: 0.05em;
+    }
+    .bike-card-spec-value {
+      font-family: system-ui, sans-serif;
+      font-size: 0.7rem; font-weight: 300; color: rgba(255,255,255,0.75);
+    }
+    .bike-card-price {
+      margin-top: 6px; font-family: system-ui, sans-serif;
+      font-size: clamp(0.9rem, 1.6vw, 1.05rem);
+      font-weight: 200; color: #fff; letter-spacing: 0.02em;
+    }
+    .bike-card-price sup { font-size: 0.6em; vertical-align: super; opacity: 0.6; }
+
+    /* ── Final section ──────────────────────────────────── */
+    #final-section {
+      position: fixed; inset: 0; z-index: 3;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 0 24px;
+      background: linear-gradient(to bottom,
+        transparent 0%, rgba(0,0,0,0.55) 30%,
+        rgba(0,0,0,0.85) 65%, rgba(0,0,0,0.97) 100%);
+      opacity: 0; pointer-events: none;
+      will-change: opacity; text-align: center;
+    }
+    #final-section:not([hidden]) { pointer-events: auto; }
+    [data-stagger] { will-change: opacity, transform; }
+    #final-eyebrow {
+      font-family: system-ui, sans-serif;
+      font-size: 0.6rem; font-weight: 400; letter-spacing: 0.3em;
+      text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 18px;
+    }
+    #final-heading {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(2.4rem, 6vw, 5rem);
+      font-weight: 200; letter-spacing: -0.02em; line-height: 1.05;
+      color: #fff; margin-bottom: 16px;
+    }
+    #final-heading strong { font-weight: 600; }
+    #final-sub {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(0.8rem, 1.6vw, 1rem);
+      font-weight: 300; color: rgba(255,255,255,0.45); letter-spacing: 0.04em;
+      max-width: 420px; line-height: 1.7; margin-bottom: 36px;
+    }
+    #final-buttons {
+      display: flex; gap: 14px; justify-content: center;
+      flex-wrap: wrap; margin-bottom: 56px;
+    }
+    .btn {
+      font-family: system-ui, sans-serif;
+      font-size: 0.75rem; font-weight: 400; letter-spacing: 0.12em;
+      text-transform: uppercase; text-decoration: none;
+      padding: 14px 32px; border-radius: 3px;
+      cursor: pointer; border: none; transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.8; }
+    .btn-primary  { background: #fff; color: #000; }
+    .btn-secondary {
+      background: transparent; color: #fff;
+      border: 1px solid rgba(255,255,255,0.25);
+    }
+    #final-contact {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 1px; background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 6px; overflow: hidden; width: min(600px, 90vw);
+    }
+    .contact-cell {
+      display: flex; flex-direction: column; gap: 5px;
+      padding: 20px 24px; background: rgba(0,0,0,0.5);
+    }
+    .contact-cell-label {
+      font-family: system-ui, sans-serif;
+      font-size: 0.55rem; letter-spacing: 0.22em;
+      text-transform: uppercase; color: rgba(255,255,255,0.3);
+    }
+    .contact-cell-value {
+      font-family: system-ui, sans-serif;
+      font-size: clamp(0.78rem, 1.4vw, 0.88rem);
+      font-weight: 300; color: rgba(255,255,255,0.85); letter-spacing: 0.02em;
+    }
+
+    /* ── Mobile ≤ 640px ─────────────────────────────────── */
+    @media (max-width: 640px) {
+      body { height: 600vh; } /* JS will override */
+      #hero { width: 90vw; }
+      #hero-heading { white-space: normal; }
+      #callout-motor, #callout-battery, #callout-display { display: none; }
+      #callout-frame  { top: 18%; left: 5%; }
+      #callout-brakes { top: 18%; right: 5%; }
+      .callout-stem { height: 22px; }
+      #bike-panel { padding: 24px 16px 32px; }
+      #panel-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      #final-section { justify-content: flex-end; padding-bottom: 48px; }
+      #final-heading { font-size: clamp(2rem, 10vw, 3rem); }
+      #final-sub { font-size: 0.85rem; }
+      #final-buttons { flex-direction: column; width: 100%; }
+      .btn { text-align: center; padding: 16px; }
+      #final-contact { grid-template-columns: 1fr; width: 100%; }
+      #scroll-hint { bottom: 24px; }
+    }
+
+    /* ── Tablet 641–1024px ──────────────────────────────── */
+    @media (min-width: 641px) and (max-width: 1024px) {
+      #panel-grid { grid-template-columns: repeat(3, 1fr); }
+      #callout-frame  { top: 20%; left: 6%; }
+      #callout-brakes { top: 20%; right: 6%; }
+    }
+
+    /* ── Touch: hide cursor ─────────────────────────────── */
+    [data-touch] #cursor-dot,
+    [data-touch] #cursor-ring { display: none !important; }
+
+  </style>
+</head>
+<body>
+
+  <!-- Custom cursor -->
+  <div id="cursor-dot"></div>
+  <div id="cursor-ring"></div>
+
+  <!-- Loading screen -->
+  <div id="loader">
+    <span id="loader-percent">0%</span>
+    <div id="loader-track"><div id="loader-bar"></div></div>
+  </div>
+
+  <!-- Canvas -->
+  <canvas id="frame-canvas"></canvas>
+
+  <!-- Hero: frames 16–150 -->
+  <div id="hero" class="overlay" hidden>
+    <span id="hero-eyebrow">Premium Performance Bikes</span>
+    <h1 id="hero-heading">Own the <em>Road</em></h1>
+    <span id="hero-sub">Scroll to explore</span>
+  </div>
+
+  <!-- Callouts -->
+  <div id="callout-frame" class="callout" hidden>
+    <div class="callout-line"><div class="callout-dot"></div><div class="callout-stem"></div></div>
+    <div class="callout-body">
+      <span class="callout-label">Structure</span>
+      <span class="callout-title">Aero Frame</span>
+      <span class="callout-value">6061 Alloy · 1.8 kg</span>
+    </div>
+  </div>
+  <div id="callout-motor" class="callout" hidden>
+    <div class="callout-line"><div class="callout-dot"></div><div class="callout-stem"></div></div>
+    <div class="callout-body">
+      <span class="callout-label">Powertrain</span>
+      <span class="callout-title">Hub Motor</span>
+      <span class="callout-value">250 W · 40 Nm</span>
+    </div>
+  </div>
+  <div id="callout-battery" class="callout" hidden>
+    <div class="callout-line"><div class="callout-dot"></div><div class="callout-stem"></div></div>
+    <div class="callout-body">
+      <span class="callout-label">Energy</span>
+      <span class="callout-title">Battery Pack</span>
+      <span class="callout-value">36 V · 10.4 Ah · 80 km range</span>
+    </div>
+  </div>
+  <div id="callout-brakes" class="callout" hidden>
+    <div class="callout-line"><div class="callout-dot"></div><div class="callout-stem"></div></div>
+    <div class="callout-body">
+      <span class="callout-label">Control</span>
+      <span class="callout-title">Hydraulic Brakes</span>
+      <span class="callout-value">160 mm rotors · 4-piston</span>
+    </div>
+  </div>
+  <div id="callout-display" class="callout" hidden>
+    <div class="callout-line"><div class="callout-dot"></div><div class="callout-stem"></div></div>
+    <div class="callout-body">
+      <span class="callout-label">Interface</span>
+      <span class="callout-title">Smart Display</span>
+      <span class="callout-value">Speed · Range · Assist level</span>
+    </div>
+  </div>
+
+  <!-- Fleet panel: frames 960–1220 -->
+  <div id="bike-panel" hidden>
+    <div id="panel-header">
+      <span id="panel-eyebrow">Our Lineup</span>
+      <span id="panel-title">Find your perfect bike</span>
+    </div>
+    <div id="panel-grid">
+      <div class="bike-card">
+        <span class="bike-card-category">Street</span>
+        <span class="bike-card-name">Urban Glide S</span>
+        <div class="bike-card-divider"></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Engine</span><span class="bike-card-spec-value">250 cc</span></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Power</span><span class="bike-card-spec-value">27 bhp</span></div>
+        <span class="bike-card-price"><sup>₹</sup>1.85L</span>
+      </div>
+      <div class="bike-card">
+        <span class="bike-card-category">Sport</span>
+        <span class="bike-card-name">Trail Blaze R</span>
+        <div class="bike-card-divider"></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Engine</span><span class="bike-card-spec-value">390 cc</span></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Power</span><span class="bike-card-spec-value">43 bhp</span></div>
+        <span class="bike-card-price"><sup>₹</sup>3.20L</span>
+      </div>
+      <div class="bike-card">
+        <span class="bike-card-category">Naked</span>
+        <span class="bike-card-name">Swift X Pro</span>
+        <div class="bike-card-divider"></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Engine</span><span class="bike-card-spec-value">650 cc</span></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Power</span><span class="bike-card-spec-value">68 bhp</span></div>
+        <span class="bike-card-price"><sup>₹</sup>5.50L</span>
+      </div>
+      <div class="bike-card">
+        <span class="bike-card-category">Adventure</span>
+        <span class="bike-card-name">Peak Rider ADV</span>
+        <div class="bike-card-divider"></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Engine</span><span class="bike-card-spec-value">800 cc</span></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Power</span><span class="bike-card-spec-value">95 bhp</span></div>
+        <span class="bike-card-price"><sup>₹</sup>9.80L</span>
+      </div>
+      <div class="bike-card">
+        <span class="bike-card-category">Cruiser</span>
+        <span class="bike-card-name">Dark Knight</span>
+        <div class="bike-card-divider"></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Engine</span><span class="bike-card-spec-value">1000 cc</span></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Power</span><span class="bike-card-spec-value">112 bhp</span></div>
+        <span class="bike-card-price"><sup>₹</sup>14.50L</span>
+      </div>
+      <div class="bike-card">
+        <span class="bike-card-category">Superbike</span>
+        <span class="bike-card-name">Apex One RS</span>
+        <div class="bike-card-divider"></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Engine</span><span class="bike-card-spec-value">1200 cc</span></div>
+        <div class="bike-card-spec"><span class="bike-card-spec-label">Power</span><span class="bike-card-spec-value">178 bhp</span></div>
+        <span class="bike-card-price"><sup>₹</sup>22.90L</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Final CTA: frames 1260–1619 -->
+  <div id="final-section" hidden>
+    <p id="final-eyebrow" data-stagger>Premium Performance Bikes</p>
+    <h2 id="final-heading" data-stagger>Own the<br><strong>Legend.</strong></h2>
+    <p id="final-sub" data-stagger>
+      Zero-compromise machines. Built for the road.<br>EMI starting ₹4,999/month. Doorstep delivery.
+    </p>
+    <div id="final-buttons" data-stagger>
+      <a class="btn btn-primary" href="#buy">Buy Now</a>
+      <a class="btn btn-secondary" href="#lineup">View Lineup</a>
+    </div>
+    <div id="final-contact" data-stagger>
+      <div class="contact-cell">
+        <span class="contact-cell-label">Call us</span>
+        <span class="contact-cell-value">+91 98765 43210</span>
+      </div>
+      <div class="contact-cell">
+        <span class="contact-cell-label">Email</span>
+        <span class="contact-cell-value">sales@motoverse.in</span>
+      </div>
+      <div class="contact-cell">
+        <span class="contact-cell-label">Showroom</span>
+        <span class="contact-cell-value">Mon – Sat, 10 am – 7 pm</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scroll hint -->
+  <div id="scroll-hint">
+    <span>Scroll</span>
+    <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+      <path d="M1 1l7 7 7-7" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
+  <script>
+  (() => {
+    'use strict';
+
+    /* ── 1. getFramePath ─────────────────────────────────── */
+    function getFramePath(i) {
+      if (i < 300) return `/frames/start/${String(i + 1).padStart(3,'0')}.jpg`;
+      if (i < 570) return `/frames/mid/${String(i - 300 + 1).padStart(3,'0')}.jpg`;
+      return `/frames/end/${String(i - 570 + 1).padStart(3,'0')}.jpg`;
+    }
+
+    /* ── 2. mobile detection ────────────────────────────── */
+    const TOUCH_LERP = 0.22;
+    const DESK_LERP  = 0.12;
+    let _isMobile = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+    function getLerpFactor() { return _isMobile ? TOUCH_LERP : DESK_LERP; }
+
+    function initMobile() {
+      if (!_isMobile) return;
+      const dot  = document.getElementById('cursor-dot');
+      const ring = document.getElementById('cursor-ring');
+      if (dot)  dot.style.display  = 'none';
+      if (ring) ring.style.display = 'none';
+      document.documentElement.style.cursor = '';
+      document.documentElement.setAttribute('data-touch', '');
+    }
+
+    /* ── 3. loader ──────────────────────────────────────── */
+    const loaderEl  = document.getElementById('loader');
+    const percentEl = document.getElementById('loader-percent');
+    const barEl     = document.getElementById('loader-bar');
+
+    function updateLoader(pct) {
+      percentEl.textContent = pct + '%';
+      barEl.style.width     = pct + '%';
+    }
+
+    function hideLoader() {
+      loaderEl.classList.add('done');
+      loaderEl.addEventListener('transitionend', () => loaderEl.remove(), { once: true });
+    }
+
+    /* ── 4. preload ─────────────────────────────────────── */
+    const TOTAL_FRAMES = 810;
+
+    function preloadFrames({ onProgress, onComplete, concurrency = 10 } = {}) {
+      const images  = new Array(TOTAL_FRAMES).fill(null);
+      const failed  = [];
+      let settled   = 0;
+      let aborted   = false;
+      let nextIndex = 0;
+
+      function getPercent() { return Math.round((settled / TOTAL_FRAMES) * 100); }
+
+      function onSettle(index, img) {
+        if (aborted) return;
+        images[index] = img;
+        settled++;
+        if (onProgress) onProgress(getPercent(), settled, TOTAL_FRAMES);
+        if (settled === TOTAL_FRAMES) { if (onComplete) onComplete(images, failed); }
+        else loadNext();
+      }
+
+      function loadOne(index) {
+        if (aborted) return;
+        const img  = new Image();
+        const path = getFramePath(index);
+        img.src = path;
+        img.decode().then(() => {
+          onSettle(index, img);
+        }).catch(() => {
+          failed.push(index); 
+          onSettle(index, null); 
+        });
+      }
+
+      function loadNext() {
+        if (aborted || nextIndex >= TOTAL_FRAMES) return;
+        loadOne(nextIndex++);
+      }
+
+      const batch = Math.min(concurrency, TOTAL_FRAMES);
+      for (let i = 0; i < batch; i++) loadNext();
+
+      return { getPercent, abort: () => { aborted = true; } };
+    }
+
+    /* ── 5. canvas ──────────────────────────────────────── */
+    let canvas, ctx, dpr;
+
+    function initCanvas() {
+      canvas = document.getElementById('frame-canvas');
+      canvas.style.position  = 'fixed';
+      canvas.style.top       = '0';
+      canvas.style.left      = '0';
+      canvas.style.zIndex    = '0';
+      canvas.style.willChange = 'transform';
+      canvas.style.transform  = 'translateZ(0)';
+      resizeCanvas();
+      window.addEventListener('resize', () => {
+        resizeCanvas();
+        maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        if (lastDrawn >= 0 && seImages[lastDrawn]) {
+          renderFrame(lastDrawn, seImages);
+        }
+      });
+    }
+
+    function resizeCanvas() {
+      dpr = window.devicePixelRatio || 1;
+      const w = window.innerWidth, h = window.innerHeight;
+      // Physical pixel canvas — draw in physical coords for max sharpness
+      canvas.width  = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width  = w + 'px';
+      canvas.style.height = h + 'px';
+      ctx = canvas.getContext('2d', { alpha: false });
+      // NO ctx.scale() — we draw in physical pixels directly
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+    }
+
+    function drawFrame(img) {
+      if (!ctx || !img) return;
+      const pw = canvas.width;
+      const ph = canvas.height;
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
+      const scale = Math.max(pw / iw, ph / ih);
+      const sw = iw * scale;
+      const sh = ih * scale;
+      ctx.clearRect(0, 0, pw, ph);
+      ctx.drawImage(img, (pw - sw) / 2, (ph - sh) / 2, sw, sh);
+    }
+
+    function renderFrame(index, images) {
+      const img = images[index];
+      if (img) drawFrame(img);
+    }
+
+    /* ── 6. overlays ────────────────────────────────────── */
+    const OVERLAY_MAP = [];
+    let   overlayCache = null;
+
+    function buildOverlayCache() {
+      overlayCache = OVERLAY_MAP.map(e => ({
+        el: document.querySelector(e.selector),
+        from: e.from, to: e.to, onProgress: e.onProgress || null,
+      })).filter(e => e.el !== null);
+    }
+
+    function registerOverlay(selector, from, to, onProgress = null) {
+      OVERLAY_MAP.push({ selector, from, to, onProgress });
+      overlayCache = null;
+    }
+
+    function updateOverlays(frame) {
+      if (!overlayCache) buildOverlayCache();
+      for (const { el, from, to, onProgress } of overlayCache) {
+        if (frame >= from && frame <= to) {
+          if (el.hidden) el.hidden = false;
+          if (onProgress) onProgress((frame - from) / (to - from), el);
+        } else {
+          if (!el.hidden) el.hidden = true;
+        }
+      }
+    }
+
+    /* ── 7. ease helper ─────────────────────────────────── */
+    function ease(t) {
+      return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2;
+    }
+
+    /* ── 8. hero (frames 16–150) ────────────────────────── */
+    function initHero() {
+      const FI = 0.33, FO = 0.70;
+      registerOverlay('#hero', 8, 75, (p, el) => {
+        let opacity, ty;
+        if (p <= FI) {
+          const t = ease(p / FI);
+          opacity = t; ty = 28 * (1 - t);
+        } else if (p <= FO) {
+          opacity = 1; ty = 0;
+        } else {
+          const t = ease((p - FO) / (1 - FO));
+          opacity = 1 - t; ty = -20 * t;
+        }
+        el.style.opacity   = opacity;
+        el.style.transform = `translateY(${ty}px) translateZ(0)`;
+      });
+    }
+
+    /* ── 9. callouts ────────────────────────────────────── */
+    function initCallouts() {
+      const FI = 0.25, FO = 0.75;
+      function makeHandler() {
+        return (p, el) => {
+          let opacity, scale;
+          if (p <= FI) {
+            const t = ease(p / FI);
+            opacity = t; scale = 0.88 + 0.12 * t;
+          } else if (p <= FO) {
+            opacity = 1; scale = 1;
+          } else {
+            const t = ease((p - FO) / (1 - FO));
+            opacity = 1 - t; scale = 1 - 0.08 * t;
+          }
+          el.style.opacity   = opacity;
+          el.style.transform = `scale(${scale}) translateZ(0)`;
+        };
+      }
+      registerOverlay('#callout-frame',   120, 210, makeHandler());
+      registerOverlay('#callout-motor',   230, 320, makeHandler());
+      registerOverlay('#callout-battery', 340, 430, makeHandler());
+      registerOverlay('#callout-brakes',  450, 540, makeHandler());
+      registerOverlay('#callout-display', 560, 640, makeHandler());
+    }
+
+    /* ── 10. fleet panel (frames 960–1220) ──────────────── */
+    function initPanel() {
+      const panel = document.getElementById('bike-panel');
+      if (!panel) return;
+      const cards    = Array.from(panel.querySelectorAll('.bike-card'));
+      const SI = 0.31, SO = 0.77, CC = 6;
+
+      function cardOpacity(p, idx) {
+        const holdLen  = SO - SI;
+        const cStart   = SI + (idx / CC) * holdLen * 0.5;
+        const cEnd     = cStart + holdLen * 0.18;
+        if (p < cStart || p > SO) return 0;
+        if (p >= cEnd) return 1;
+        return ease((p - cStart) / (cEnd - cStart));
+      }
+
+      registerOverlay('#bike-panel', 480, 610, (p, el) => {
+        let ty, opacity;
+        if (p <= SI) {
+          const t = ease(p / SI);
+          ty = 100 * (1 - t); opacity = t;
+        } else if (p <= SO) {
+          ty = 0; opacity = 1;
+        } else {
+          const t = ease((p - SO) / (1 - SO));
+          ty = 100 * t; opacity = 1 - t;
+        }
+        el.style.opacity   = opacity;
+        el.style.transform = `translateY(${ty}%) translateZ(0)`;
+        cards.forEach((c, i) => { c.style.opacity = cardOpacity(p, i); });
+      });
+    }
+
+    /* ── 11. final section (frames 1260–1619) ───────────── */
+    function initFinal() {
+      const section = document.getElementById('final-section');
+      if (!section) return;
+      const blocks = Array.from(section.querySelectorAll('[data-stagger]'));
+      const FE = 0.31;
+
+      function staggerOpacity(p, idx, total) {
+        if (p >= FE) return 1;
+        const slot  = FE / total;
+        const start = idx * slot * 0.6;
+        const end   = start + slot;
+        if (p < start) return 0;
+        if (p >= end)  return 1;
+        return ease((p - start) / (end - start));
+      }
+
+      registerOverlay('#final-section', 630, 809, (p, el) => {
+        el.style.opacity = p <= FE ? ease(p / FE) : 1;
+        blocks.forEach((b, i) => {
+          const op = staggerOpacity(p, i, blocks.length);
+          b.style.opacity   = op;
+          b.style.transform = `translateY(${(1 - op) * 16}px) translateZ(0)`;
+        });
+      });
+    }
+
+    /* ── 12. scroll engine ──────────────────────────────── */
+    let seImages = [], targetFrame = 0, currentFrame = 0;
+    let rafId = null, lastDrawn = -1;
+
+    let maxScroll = 0;
+    let currentScroll = 0;
+
+    window.addEventListener('scroll', () => {
+      currentScroll = window.scrollY;
+    }, { passive: true });
+
+    function scrollToFrame() {
+      const progress  = maxScroll > 0 ? Math.min(currentScroll / maxScroll, 1) : 0;
+      return progress * (TOTAL_FRAMES - 1);
+    }
+
+    function tick() {
+      rafId = requestAnimationFrame(tick);
+      targetFrame   = scrollToFrame();
+      currentFrame += (targetFrame - currentFrame) * getLerpFactor();
+      if (Math.abs(targetFrame - currentFrame) < 0.1) currentFrame = targetFrame;
+      const fi = Math.round(currentFrame);
+      if (fi === lastDrawn) return;
+      lastDrawn = fi;
+      renderFrame(fi, seImages);
+      updateOverlays(fi);
+    }
+
+    function startScrollEngine(images) {
+      seImages = images;
+      currentFrame = 0; targetFrame = 0; lastDrawn = -1;
+      maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      currentScroll = window.scrollY;
+      renderFrame(0, seImages);
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(tick);
+    }
+
+    /* ── 13. custom cursor ──────────────────────────────── */
+    function initCursor() {
+      if (_isMobile) return;  // no cursor on touch
+      const DOT  = 6, RING = 36, LERP = 0.10;
+      const dot  = document.getElementById('cursor-dot');
+      const ring = document.getElementById('cursor-ring');
+      let mx = innerWidth/2, my = innerHeight/2;
+      let rx = mx, ry = my;
+      let hover = false, visible = false;
+
+      document.documentElement.style.cursor = 'none';
+
+      document.addEventListener('mousemove', e => {
+        mx = e.clientX; my = e.clientY;
+        if (!visible) { rx = mx; ry = my; visible = true; dot.style.opacity = ring.style.opacity = '1'; }
+      });
+      document.addEventListener('mouseenter', () => { visible = true;  dot.style.opacity = ring.style.opacity = '1'; });
+      document.addEventListener('mouseleave', () => { visible = false; dot.style.opacity = ring.style.opacity = '0'; });
+
+      document.addEventListener('mouseover', e => {
+        if (e.target.closest('[data-cursor],a,button,.btn,.bike-card')) setH(true);
+      });
+      document.addEventListener('mouseout', e => {
+        const to = e.relatedTarget;
+        if (!to || !to.closest('[data-cursor],a,button,.btn,.bike-card')) setH(false);
+      });
+
+      function setH(s) {
+        if (hover === s) return;
+        hover = s;
+        ring.classList.toggle('cursor-hover', s);
+        dot.classList.toggle('cursor-hover',  s);
+      }
+
+      (function cursorTick() {
+        requestAnimationFrame(cursorTick);
+        rx += (mx - rx) * LERP;
+        ry += (my - ry) * LERP;
+        dot.style.transform  = `translate(${mx - DOT/2}px,${my - DOT/2}px) translateZ(0)`;
+        ring.style.transform = `translate(${rx - RING/2}px,${ry - RING/2}px) translateZ(0)`;
+      })();
+    }
+
+    /* ── 14. boot sequence ──────────────────────────────── */
+    document.addEventListener('DOMContentLoaded', () => {
+      // Ensure scroll distance is always at least 5000px regardless of viewport
+      // 10px per frame = 8100px minimum, always at least 3× viewport
+      document.body.style.height = Math.max(TOTAL_FRAMES * 10, window.innerHeight * 3) + 'px';
+
+      initMobile();
+      initCanvas();
+      initHero();
+      initCallouts();
+      initPanel();
+      initFinal();
+      initCursor();
+
+      preloadFrames({
+        concurrency: 10,
+        onProgress(pct) { updateLoader(pct); },
+        onComplete(images, failed) {
+          if (failed.length) console.warn(`[preload] ${failed.length} frame(s) failed.`);
+          hideLoader();
+          startScrollEngine(images);
+        },
+      });
+    });
+
+  })();
+  </script>
+</body>
+</html>
