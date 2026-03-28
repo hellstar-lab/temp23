@@ -72,6 +72,13 @@
       background: #fff; border-radius: 2px;
       transition: width 0.1s linear;
     }
+    #loader-sub {
+      font-family: system-ui, sans-serif;
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #555;
+    }
 
     /* ── Overlay base ───────────────────────────────────── */
     .overlay {
@@ -340,6 +347,7 @@
   <div id="loader">
     <span id="loader-percent">0%</span>
     <div id="loader-track"><div id="loader-bar"></div></div>
+    <span id="loader-sub">Preparing experience</span>
   </div>
 
   <!-- Canvas -->
@@ -531,22 +539,33 @@
     }
 
     /* ── 4. preload ─────────────────────────────────────── */
-    const TOTAL_FRAMES = 810;
+    const TOTAL_FRAMES  = 810;
+    const PRIORITY_FRAMES = 30; // load these first, then show site
 
-    function preloadFrames({ onProgress, onComplete, concurrency = 10 } = {}) {
+    function preloadFrames({ onProgress, onComplete, onPriorityReady, concurrency = 20 } = {}) {
       const images  = new Array(TOTAL_FRAMES).fill(null);
       const failed  = [];
       let settled   = 0;
+      let prioritySettled = 0;
       let aborted   = false;
       let nextIndex = 0;
-
-      function getPercent() { return Math.round((settled / TOTAL_FRAMES) * 100); }
+      let priorityDone = false;
 
       function onSettle(index, img) {
         if (aborted) return;
         images[index] = img;
         settled++;
-        if (onProgress) onProgress(getPercent(), settled, TOTAL_FRAMES);
+
+        // Track priority batch separately
+        if (index < PRIORITY_FRAMES) {
+          prioritySettled++;
+          if (onProgress) onProgress(Math.round((prioritySettled / PRIORITY_FRAMES) * 100));
+          if (prioritySettled === PRIORITY_FRAMES && !priorityDone) {
+            priorityDone = true;
+            if (onPriorityReady) onPriorityReady(images);
+          }
+        }
+
         if (settled === TOTAL_FRAMES) { if (onComplete) onComplete(images, failed); }
         else loadNext();
       }
@@ -554,14 +573,9 @@
       function loadOne(index) {
         if (aborted) return;
         const img  = new Image();
-        const path = getFramePath(index);
-        img.src = path;
-        img.decode().then(() => {
-          onSettle(index, img);
-        }).catch(() => {
-          failed.push(index); 
-          onSettle(index, null); 
-        });
+        img.src = getFramePath(index);
+        img.decode().then(() => onSettle(index, img))
+                    .catch(() => { failed.push(index); onSettle(index, null); });
       }
 
       function loadNext() {
@@ -572,7 +586,7 @@
       const batch = Math.min(concurrency, TOTAL_FRAMES);
       for (let i = 0; i < batch; i++) loadNext();
 
-      return { getPercent, abort: () => { aborted = true; } };
+      return { abort: () => { aborted = true; } };
     }
 
     /* ── 5. canvas ──────────────────────────────────────── */
@@ -862,12 +876,18 @@
       initCursor();
 
       preloadFrames({
-        concurrency: 10,
+        concurrency: 20,
         onProgress(pct) { updateLoader(pct); },
-        onComplete(images, failed) {
-          if (failed.length) console.warn(`[preload] ${failed.length} frame(s) failed.`);
+
+        // Phase 1: first 30 frames ready → hide loader, start engine NOW
+        onPriorityReady(images) {
           hideLoader();
           startScrollEngine(images);
+        },
+
+        // Phase 2: all 810 done → engine already running, images array fills in-place
+        onComplete(images, failed) {
+          if (failed.length) console.warn(`[preload] ${failed.length} frame(s) failed.`);
         },
       });
     });
